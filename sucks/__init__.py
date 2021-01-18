@@ -904,7 +904,9 @@ class EcoVacsXMPP(ClientXMPP):
         self.ctl_subscribers.append(function)
 
     def _handle_ctl(self, message):
-        the_good_part = message.get_payload()[0][0]
+        payload = message.get_payload()[0][0]
+        the_good_part = payload
+#        print(ppretty(message))
         as_dict = self._ctl_to_dict(the_good_part)
         if as_dict is not None:
             for s in self.ctl_subscribers:
@@ -912,13 +914,34 @@ class EcoVacsXMPP(ClientXMPP):
 
     def _ctl_to_dict(self, xml):
         result = xml.attrib.copy()
+#        print(result)
         if 'td' not in result:
+            result = {}
             # This happens for commands with no response data, such as PlaySound
-            return
-
-        result['event'] = result.pop('td')
-        if xml:
-            result.update(xml[0].attrib)
+            # This may be new and causing issues...
+            try:
+                data = xml[0]
+                kind = data.tag.rpartition('}')[-1]
+                if kind == "charge":
+                    result['ts'] = int(time.time())
+                    result['event'] = 'charge_state'
+                    result['type'] = data.attrib['type']
+                if kind == "battery":
+                    result['ts'] = int(time.time())
+                    result['event'] = 'battery_info'
+                    result['power'] = data.attrib['power']
+            
+            except IndexError:
+                data = xml
+                result['ts'] = int(time.time())
+                result['event'] = 'life_span'
+                result['type'] = data.attrib['type']
+                result['val'] = data.attrib['left']
+                
+        else:
+            result['event'] = result.pop('td')
+            if xml:
+                result.update(xml[0].attrib)
 
         for key in result:
             if not RepresentsInt(result[key]): #Fix to handle negative int values
@@ -926,7 +949,8 @@ class EcoVacsXMPP(ClientXMPP):
             
         return result
 
-    def register_callback(self, userdata, message):
+    def register_callback(self, kind, message):
+        print(kind)
 
         self.register_handler(Callback(kind,
                                        MatchXPath('{jabber:client}iq/{com:ctl}query/{com:ctl}ctl[@td="' + kind + '"]'),
